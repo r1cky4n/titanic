@@ -7,6 +7,7 @@ import re
 import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
+import random
 
 #=======================================================================================================================
 # Parse Titanic Dataset
@@ -24,7 +25,7 @@ def get_passenger_data (data_csv):
         reader = csv.DictReader(f, delimiter=CSV_DELIM)
         header = reader.fieldnames
 
-        print(header)
+        #print(header)
     
         for row in reader:
             passenger.append( row )
@@ -163,8 +164,8 @@ def engineer_features( passenger ):
 # Family_size       - INT
 # Fare_pre_person   - FLOAT
 
-SEX_ENUM      = { 'male':1, 'female':2 }
-EMBARKED_ENUM = { 'C':1, 'Q':2, 'S':3, '':0 }
+SEX_ENUM      = { 'male':0, 'female':1 }
+EMBARKED_ENUM = { 'C':0, 'Q':1, 'S':2, '':3 }
 
 # Add lastname mappings by...
 #   if lastname not in LASTNAME_ENUM.keys():
@@ -172,17 +173,19 @@ EMBARKED_ENUM = { 'C':1, 'Q':2, 'S':3, '':0 }
 #       LASTNAME_ENUM_IND += 1
 #
 LNAME_ENUM          = {}
-LNAME_ENUM_IND      = 1
+LNAME_ENUM_IND      = 0
 
 TITLE_ENUM          = {}
-TITLE_ENUM_IND      = 1
+TITLE_ENUM_IND      = 0
 
 DECK_ENUM           = {}
-DECK_ENUM_IND       = 1
+DECK_ENUM_IND       = 0
 
 # Number of Features
 #
-D = 13
+#D = 12
+D = 11
+#D = 8
 
 # Check if key is in enum - if not, add to enum
 #
@@ -232,7 +235,7 @@ def data_convert2numpy( passenger, training=False ):
 
         # update the data
         #
-        Pclass          = float( p['Pclass'] )
+        Pclass          = float( p['Pclass'] ) - 1
         Sex             = float( SEX_ENUM[ p['Sex'] ] )
 
         if p['Age'] == '':
@@ -256,15 +259,17 @@ def data_convert2numpy( passenger, training=False ):
         Family_size     = float( p['Family_size'] )
         Fare_per_person = float( p['Fare_per_person'] )
 
+        #data[n,:] = [ Pclass, Sex, Age, SibSp, Parch, Fare, Embarked, \
+        #              Lastname, Title, Deck, Room, Family_size, Fare_per_person ]
+        #data[n,:] = [ Pclass, Sex, Age, SibSp, Parch, Fare, Embarked, \
+        #              Lastname, Title, Deck, Room, Fare_per_person ]
         data[n,:] = [ Pclass, Sex, Age, SibSp, Parch, Fare, Embarked, \
-                      Lastname, Title, Deck, Room, Family_size, Fare_per_person ]
+                      Title, Deck, Room, Fare_per_person ]
+        #data[n,:] = [ Pclass, Sex, Age, SibSp, Parch, Fare_per_person, Deck, Room ]
 
 
 
     avg_age = age_accum/known_age_cnt
-
-    data[:,2]
-
 
     for n in range(N):
 
@@ -273,12 +278,25 @@ def data_convert2numpy( passenger, training=False ):
         if data[n,2] == -1 : 
             data[n,2] = avg_age
 
+    # Normalize the data to be [0,1] 
+    #
+    data_normed = data / data.max(axis=0)
+
+    #print("---- FIELDS IN DATA----")
+    #print("[Pclass, Sex, Age, SibSp, Parch, Fare, Embarked, Lastname, Title, Deck, Room, Fare_per_person]")
+    #print("--------")
+    print("---- MAX VALUES in DATA ----")
+    print(data.max(axis=0))
+    print("--------")
+    print("---- MIN VALUES in DATA ----")
+    print(data.min(axis=0))
+    print("--------")
 
 
     if training:
-        return pid, data, survived
+        return pid, data_normed, survived
     else:
-        return pid, data
+        return pid, data_normed
 
 
 
@@ -287,7 +305,6 @@ def data_convert2numpy( passenger, training=False ):
 # TensorFlow Neural Net
 #=======================================================================================================================
 
-lr = 0.05        # Learning Rate
 
 tf.reset_default_graph()
 X = tf.placeholder(tf.float32, [None, D])
@@ -296,8 +313,17 @@ is_training = tf.placeholder(tf.bool)
 
 def titanic_model( X, is_training ):
     with tf.variable_scope("titanic_nn"):
+        initializer = tf.contrib.layers.xavier_initializer()
+
+
+        X = tf.layers.dense( X, units=100, activation=None, kernel_initializer=initializer )
+        #X = tf.layers.batch_normalization( X, training=is_training )
+        X = tf.nn.relu(X)
+
+
+
         #X = tf.layers.dense( X, units=100, activation=tf.nn.relu )
-        #X = tf.layers.dense( X, units=25,  activation=tf.nn.relu )
+        X = tf.layers.dense( X, units=25,  activation=tf.nn.relu )
         X = tf.layers.dense( X, units=2,   activation=tf.tanh)
 
         return X
@@ -368,8 +394,8 @@ def run_model(session, predict, loss_val, Xd, yd,
         print("Epoch {2}, Overall loss = {0:.3g} and accuracy of {1:.3g}"\
               .format(total_loss,total_correct,e+1))
 
-        print(correct)
-        print(Xd.shape[0])
+        #print(correct)
+        #print(Xd.shape[0])
 
 
         if plot_losses:
@@ -387,12 +413,16 @@ def run_model(session, predict, loss_val, Xd, yd,
 
 
 def train_model(pid, survived, data):
+    lr = 0.001        # Learning Rate
+    batch_sz = 16
+    val_sz   = 200
     
     # Construct model, loss/opt, train_step
     #
     y_out = titanic_model(X, is_training)
 
-    mean_loss  = tf.reduce_mean( tf.nn.softmax_cross_entropy_with_logits( logits=y_out, labels=tf.one_hot(y,2) ) )
+    #mean_loss  = tf.reduce_mean( tf.nn.softmax_cross_entropy_with_logits( logits=y_out, labels=tf.one_hot(y,2) ) )
+    mean_loss  = tf.reduce_mean( tf.nn.sigmoid_cross_entropy_with_logits( logits=y_out, labels=tf.one_hot(y,2) ) )
     optimizer  = tf.train.AdamOptimizer(learning_rate=lr)
     train_step = optimizer.minimize(mean_loss)
 
@@ -401,12 +431,29 @@ def train_model(pid, survived, data):
     sess = tf.Session()
     sess.run(tf.global_variables_initializer())
 
-    X_train = data
-    y_train = survived.astype(int)
+    # split data randomly into 2 arrays
+    #
+    N,_ = data.shape
 
-    print('Training')
-    run_model( sess, y_out, mean_loss, X_train, y_train, 10, 64, 100, train_step, False)
+    ind = np.arange(N)
+    np.random.shuffle(ind)
 
+    data     = data[ind,:]
+    survived = survived[ind]
+
+    X_val   = data[:val_sz,:]
+    y_val   = survived[:val_sz].astype(int)
+
+    X_train = data[val_sz:,:]
+    y_train = survived[val_sz:].astype(int)
+
+    print (X_train.shape)
+
+    print('\nTraining\n')
+    run_model( sess, y_out, mean_loss, X_train, y_train, 200, batch_sz, 100, train_step, False)
+
+    print('\nValidation\n')
+    run_model( sess, y_out, mean_loss, X_val, y_val, 1, batch_sz)
 
 
 
@@ -434,7 +481,8 @@ def main():
 
     #print(pid)
     #print(survived)
-    #print(data[200])
+    print(data[200])
+    print(data.shape)
     
     train_model(pid, survived, data)
 
