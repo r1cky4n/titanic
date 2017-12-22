@@ -499,7 +499,7 @@ def main():
     args = parser.parse_args()
 
     if (args.train == None or args.test == None):
-        print('ERROR! PROPER MINIMUM FORMAT: python parse_titanic.py --train <CSV FILE> --test <CSV FILE>')
+        print('ERROR! PROPER MINIMUM FORMAT: python tf_titanic.py --train <CSV FILE> --test <CSV FILE>')
         exit(1)
 
     passenger = get_passenger_data(args.train)
