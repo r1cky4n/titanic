@@ -25,6 +25,7 @@ def get_passenger_data (data_csv):
         reader = csv.DictReader(f, delimiter=CSV_DELIM)
         header = reader.fieldnames
 
+        #print("\n--------")
         #print(header)
     
         for row in reader:
@@ -103,6 +104,9 @@ def parse_fare( passenger ):
     
     for p in passenger:
         fno = int(p['SibSp']) + int(p['Parch']) + 1
+
+        if p['Fare'] == '':
+            p['Fare'] = 0
         fpp = float(p['Fare']) / fno
 
         family_no.append(str(fno))
@@ -282,15 +286,16 @@ def data_convert2numpy( passenger, training=False ):
     #
     data_normed = data / data.max(axis=0)
 
-    #print("---- FIELDS IN DATA----")
-    #print("[Pclass, Sex, Age, SibSp, Parch, Fare, Embarked, Lastname, Title, Deck, Room, Fare_per_person]")
-    #print("--------")
-    print("---- MAX VALUES in DATA ----")
-    print(data.max(axis=0))
-    print("--------")
-    print("---- MIN VALUES in DATA ----")
-    print(data.min(axis=0))
-    print("--------")
+    if training:
+        #print("---- FIELDS IN DATA----")
+        #print("[Pclass, Sex, Age, SibSp, Parch, Fare, Embarked, Lastname, Title, Deck, Room, Fare_per_person]")
+        #print("--------")
+        print("---- MAX VALUES in DATA ----")
+        print(data.max(axis=0))
+        print("--------")
+        print("---- MIN VALUES in DATA ----")
+        print(data.min(axis=0))
+        print("--------")
 
 
     if training:
@@ -319,6 +324,7 @@ def titanic_model( X, is_training ):
         X = tf.layers.dense( X, units=100, activation=None, kernel_initializer=initializer )
         #X = tf.layers.batch_normalization( X, training=is_training )
         X = tf.nn.relu(X)
+        X = tf.layers.dropout( X, rate=0.4, training=is_training )
 
 
 
@@ -340,7 +346,6 @@ def run_model(session, predict, loss_val, Xd, yd,
     correct_prediction = tf.equal(tf.argmax(predict,1), y)
     accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
     
-
     # shuffle indicies
     train_indicies = np.arange(Xd.shape[0])
     np.random.shuffle(train_indicies)
@@ -408,10 +413,6 @@ def run_model(session, predict, loss_val, Xd, yd,
     return total_loss,total_correct
 
 
-
-
-
-
 def train_model(pid, survived, data):
     lr = 0.001        # Learning Rate
     batch_sz = 16
@@ -455,8 +456,34 @@ def train_model(pid, survived, data):
     print('\nValidation\n')
     run_model( sess, y_out, mean_loss, X_val, y_val, 1, batch_sz)
 
+    return y_out, sess
+
+def test_model(pid, data, y_out, sess):
+    batch_sz = 16
 
 
+    predict = tf.argmax(y_out,1)
+    feed_dict = {X: data, is_training: False}
+    
+    test_out = sess.run( predict, feed_dict=feed_dict )
+
+
+    print("\n Ran Test Set and generating submission csv!")
+
+    # print out the test results
+    #
+    oFile = open('titanic_output.csv', 'w')
+    oFile.write("PassengerId,Survived\n")
+
+    N = len(test_out)
+    for n in range(N):
+        p = int(pid[n])
+        o = test_out[n]
+
+        line = str(p)+","+str(o)+"\n"
+        oFile.write(line)
+
+    oFile.close()
 
 
 #=======================================================================================================================
@@ -466,12 +493,13 @@ def train_model(pid, survived, data):
 def main():
     descr = 'Titanic Dataset Parser'
     parser = argparse.ArgumentParser(description=descr)
-    parser.add_argument('--train', '-t', help='Data to Parse')
+    parser.add_argument('--train', '-t', help='Training Set')
+    parser.add_argument('--test',  '-e', help='Test Set')
 
     args = parser.parse_args()
 
-    if (args.train == None):
-        print('ERROR! PROPER MINIMUM FORMAT: python parse_titanic.py --train <CSV FILE>')
+    if (args.train == None or args.test == None):
+        print('ERROR! PROPER MINIMUM FORMAT: python parse_titanic.py --train <CSV FILE> --test <CSV FILE>')
         exit(1)
 
     passenger = get_passenger_data(args.train)
@@ -484,9 +512,16 @@ def main():
     print(data[200])
     print(data.shape)
     
-    train_model(pid, survived, data)
+    y_out, sess = train_model(pid, survived, data)
+
+    # Parse Test Data
+    #
+    test_pass = get_passenger_data(args.test)
+    test_pass = engineer_features(test_pass) 
+    test_pid, test_data = data_convert2numpy(test_pass, training=False)
 
 
+    test_model( test_pid, test_data, y_out, sess )
 
 
 if __name__ == '__main__':
